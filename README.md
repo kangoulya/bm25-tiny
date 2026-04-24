@@ -2,7 +2,7 @@
 
 > Pure-Python BM25 retrieval for machines that numpy left behind.
 
-Two files, stdlib only, ~300 lines. Ingests `.md` / `.txt` / `.pdf` / `.docx`,
+Two files, stdlib only, ~400 lines. Ingests `.md` / `.txt` / `.pdf` / `.docx`,
 builds a JSON BM25 index, runs lexical retrieval on it. No numpy, no torch,
 no ChromaDB, no FAISS — nothing that needs `x86-64-v2`.
 
@@ -58,6 +58,39 @@ Paths are env-overridable:
 BM25_SOURCES=/data/docs BM25_STORE=/data/index python ingest.py
 BM25_INDEX=/data/index/bm25.json python query.py "..."
 ```
+
+### Scopes (multi-index)
+
+For RAG with auth-gated corpora (public vs private, team A vs team B...), use
+`--scopes`. Each scope is a subdirectory of sources/ and produces its own
+index file; queries can read any subset and merge results.
+
+```bash
+# layout
+sources/
+  public/    <- shared corpus
+  private/   <- gated corpus
+
+python ingest.py --scopes public,private
+# -> store/bm25_public.json
+# -> store/bm25_private.json
+
+# anon: public only
+python query.py "..." --scope public
+
+# authenticated: merge public + private, single ranked list
+python query.py "..." --scope public --scope private
+```
+
+From library code:
+
+```python
+hits = retrieve("...", k=5, scopes=["public", "private"])
+# each hit has a "scope" field so the caller can filter or label
+```
+
+No flag = legacy single-index behavior (`store/bm25.json`). Fully backward
+compatible.
 
 ### How it works
 
@@ -134,6 +167,40 @@ Les chemins sont surchargeables par variables d environnement :
 BM25_SOURCES=/data/docs BM25_STORE=/data/index python ingest.py
 BM25_INDEX=/data/index/bm25.json python query.py "..."
 ```
+
+### Scopes (multi-index)
+
+Pour un RAG avec corpus gates par authentification (public vs prive, equipe A
+vs equipe B...), utilisez `--scopes`. Chaque scope est un sous-dossier de
+sources/ et produit son propre index ; une requete peut lire n importe quel
+sous-ensemble et fusionner les resultats.
+
+```bash
+# arborescence
+sources/
+  public/    <- corpus partage
+  private/   <- corpus gate
+
+python ingest.py --scopes public,private
+# -> store/bm25_public.json
+# -> store/bm25_private.json
+
+# anonyme : public seul
+python query.py "..." --scope public
+
+# authentifie : public + prive fusionnes, un seul classement
+python query.py "..." --scope public --scope private
+```
+
+Depuis du code :
+
+```python
+hits = retrieve("...", k=5, scopes=["public", "private"])
+# chaque resultat porte un champ "scope" pour filtrage / affichage
+```
+
+Sans flag = comportement mono-index historique (`store/bm25.json`).
+Retrocompatible a 100 %.
 
 ### Origine
 

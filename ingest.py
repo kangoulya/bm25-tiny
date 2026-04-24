@@ -12,12 +12,19 @@ inverted index, Okapi BM25 scoring. Plenty fast for small-to-medium corpora
 (a few MB of text).
 
 Usage:
+    # Single-index (default)
     python ingest.py [sources_dir] [store_dir]
+
+    # Multi-scope: sources_dir contains subdirs, one index per subdir
+    python ingest.py --scopes public,private
+    # -> sources/public/  -> store/bm25_public.json
+    # -> sources/private/ -> store/bm25_private.json
 
 Defaults (env-overridable):
     BM25_SOURCES = ./sources
     BM25_STORE   = ./store
 """
+import argparse
 import json
 import math
 import os
@@ -26,10 +33,6 @@ import sys
 import unicodedata
 from collections import Counter
 from pathlib import Path
-
-SOURCES = Path(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("BM25_SOURCES", "./sources"))
-STORE   = Path(sys.argv[2] if len(sys.argv) > 2 else os.environ.get("BM25_STORE",   "./store"))
-INDEX   = STORE / "bm25.json"
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
@@ -105,13 +108,15 @@ def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP):
     return chunks
 
 
-def main():
-    SOURCES.mkdir(parents=True, exist_ok=True)
-    STORE.mkdir(parents=True, exist_ok=True)
-    files = [p for p in SOURCES.rglob("*") if p.is_file() and p.suffix.lower() in (".md", ".txt", ".pdf", ".docx")]
+def build_index(sources_dir: Path, index_path: Path, label: str = ""):
+    """Scan sources_dir and write a BM25 index to index_path. Returns number of chunks."""
+    sources_dir.mkdir(parents=True, exist_ok=True)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+
+    files = [p for p in sources_dir.rglob("*") if p.is_file() and p.suffix.lower() in (".md", ".txt", ".pdf", ".docx")]
     if not files:
-        print(f"[info] No sources in {SOURCES}. Drop .md/.txt/.pdf/.docx files there.")
-        sys.exit(0)
+        print(f"[{label or 'info'}] No sources in {sources_dir}. Drop .md/.txt/.pdf/.docx files there.")
+        return 0
 
     docs = []
     df = Counter()
@@ -120,7 +125,7 @@ def main():
         text = read_file(f)
         if not text.strip():
             continue
-        rel = str(f.relative_to(SOURCES))
+        rel = str(f.relative_to(sources_dir))
         n_chunks = 0
         for i, c in enumerate(chunk_text(text)):
             toks = tokenize(c)
@@ -137,12 +142,13 @@ def main():
             for term in tf:
                 df[term] += 1
             n_chunks += 1
-        print(f"[ingest] {rel}: {n_chunks} chunks")
+        tag = f"[{label}] " if label else ""
+        print(f"{tag}{rel}: {n_chunks} chunks")
 
     N = len(docs)
     if N == 0:
-        print("[err] No chunk generated.")
-        sys.exit(1)
+        print(f"[{label or 'err'}] No chunk generated.")
+        return 0
 
     avgdl = sum(d["length"] for d in docs) / N
     idf = {t: math.log((N - n + 0.5) / (n + 0.5) + 1) for t, n in df.items()}
@@ -154,9 +160,37 @@ def main():
         "idf": idf,
         "docs": docs,
     }
-    INDEX.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
-    size_kb = INDEX.stat().st_size / 1024
-    print(f"\n[done] {len(files)} files, {N} chunks, BM25 index {size_kb:.1f} KB -> {INDEX}")
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+    size_kb = index_path.stat().st_size / 1024
+    tag = f"[{label}] " if label else ""
+    print(f"\n{tag}{len(files)} files, {N} chunks, BM25 index {size_kb:.1f} KB -> {index_path}")
+    return N
+
+
+def parse_args():
+    ap = argparse.ArgumentParser(description="bm25-tiny ingest")
+    ap.add_argument("sources", nargs="?", default=None, help="sources directory (default: $BM25_SOURCES or ./sources)")
+    ap.add_argument("store", nargs="?", default=None, help="store directory (default: $BM25_STORE or ./store)")
+    ap.add_argument("--scopes", help="comma-separated scope names; each <sources>/<scope>/ becomes bm25_<scope>.json")
+    return ap.parse_args()
+
+
+def main():
+    args = parse_args()
+    sources = Path(args.sources or os.environ.get("BM25_SOURCES", "./sources"))
+    store = Path(args.store or os.environ.get("BM25_STORE", "./store"))
+
+    if args.scopes:
+        scopes = [s.strip() for s in args.scopes.split(",") if s.strip()]
+        total = 0
+        for scope in scopes:
+            total += build_index(sources / scope, store / f"bm25_{scope}.json", label=scope)
+        if total == 0:
+            sys.exit(1)
+    else:
+        n = build_index(sources, store / "bm25.json")
+        if n == 0:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
