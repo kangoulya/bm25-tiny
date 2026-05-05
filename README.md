@@ -92,6 +92,39 @@ hits = retrieve("...", k=5, scopes=["public", "private"])
 No flag = legacy single-index behavior (`store/bm25.json`). Fully backward
 compatible.
 
+### MCP Server (Model Context Protocol)
+
+`mcp_server.py` wraps `query.py` as MCP tools for LLM agents. Exposes two
+tools (`search` and `search_raw`) that any MCP-compatible agent (Claude Code,
+Hermes, Cursor…) can call to retrieve context from your corpus.
+
+```bash
+# Install the MCP SDK
+pip install "mcp[cli]"
+
+# Single index
+python mcp_server.py
+
+# Multi-scope via env
+BM25_SCOPES=public,private python mcp_server.py
+```
+
+**Hermes config** (`~/.hermes/config.yaml`):
+
+```yaml
+tools:
+  mcp_servers:
+    bm25-tiny:
+      command: python
+      args: ["/path/to/bm25-tiny/mcp_server.py"]
+      env:
+        BM25_STORE: /data/index
+        BM25_SCOPES: public,private
+```
+
+The agent's LLM can then call `search(query, k, scopes)` to fetch relevant
+passages and inject them into its context — no extra code needed.
+
 ### How it works
 
 - **Tokenization**: NFD accent strip -> lowercase -> `[a-z0-9]{2,}` ->
@@ -201,6 +234,41 @@ hits = retrieve("...", k=5, scopes=["public", "private"])
 
 Sans flag = comportement mono-index historique (`store/bm25.json`).
 Retrocompatible a 100 %.
+
+### Serveur MCP (Model Context Protocol)
+
+`mcp_server.py` enrobe `query.py` en outils MCP pour les agents LLM. Expose
+deux outils (`search` et `search_raw`) que tout agent compatible MCP (Claude
+Code, Hermes, Cursor…) peut appeler pour recuperer du contexte depuis votre
+corpus.
+
+```bash
+# Installation du SDK MCP
+pip install "mcp[cli]"
+
+# Index unique
+python mcp_server.py
+
+# Multi-scope via variable d environnement
+BM25_SCOPES=public,private python mcp_server.py
+```
+
+**Configuration Hermes** (`~/.hermes/config.yaml`):
+
+```yaml
+tools:
+  mcp_servers:
+    bm25-tiny:
+      command: python
+      args: ["/chemin/vers/bm25-tiny/mcp_server.py"]
+      env:
+        BM25_STORE: /data/index
+        BM25_SCOPES: public,private
+```
+
+L'agent peut ensuite appeler `search(query, k, scopes)` pour trouver des
+passages pertinents et les injecter dans son contexte — sans code
+supplementaire.
 
 ### Origine
 
